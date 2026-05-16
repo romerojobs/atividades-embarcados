@@ -52,6 +52,7 @@ MPU6050
 #define MPU6050_ADDR              0x68
 
 #define MPU6050_PWR_MGMT_1        0x6B
+#define MPU6050_ACCEL_CONFIG      0x1C
 
 #define MPU6050_ACCEL_XOUT_H      0x3B
 #define MPU6050_ACCEL_YOUT_H      0x3D
@@ -65,7 +66,7 @@ PWM
 ========================================================
 */
 
-#define PWM_FREQUENCY             50
+#define PWM_FREQUENCY             5000
 #define PWM_RESOLUTION            LEDC_TIMER_13_BIT
 
 #define PWM_MODE                  LEDC_LOW_SPEED_MODE
@@ -248,6 +249,12 @@ void mpu6050_init()
         &mpu6050_handle
     );
 
+    /*
+    ========================================================
+    WAKEUP MPU6050
+    ========================================================
+    */
+
     uint8_t wakeup_cmd[2] = {
         MPU6050_PWR_MGMT_1,
         0x00
@@ -257,6 +264,24 @@ void mpu6050_init()
         mpu6050_handle,
         wakeup_cmd,
         sizeof(wakeup_cmd),
+        -1
+    );
+
+    /*
+    ========================================================
+    CONFIGURA ±2g
+    ========================================================
+    */
+
+    uint8_t accel_config[2] = {
+        MPU6050_ACCEL_CONFIG,
+        0x00
+    };
+
+    i2c_master_transmit(
+        mpu6050_handle,
+        accel_config,
+        sizeof(accel_config),
         -1
     );
 }
@@ -480,6 +505,7 @@ void TaskPWM(void * pvParameters)
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
+
 /*
 ========================================================
 TASK CONSOLE
@@ -529,13 +555,21 @@ void TaskPotenciometro(void * pvParameters)
 {
     while(1)
     {
+        int estado_local;
+
+        xSemaphoreTake(xMutexDados, portMAX_DELAY);
+
+        estado_local = estado_PWM;
+
+        xSemaphoreGive(xMutexDados);
+
         /*
         ========================================================
         SOMENTE atualiza ADC no modo LIVE
         ========================================================
         */
 
-        if(estado_PWM == PWM_LIVE)
+        if(estado_local == PWM_LIVE)
         {
             int leitura = lerADC();
 
@@ -565,20 +599,6 @@ void TaskPotenciometro(void * pvParameters)
                 porcentagem;
 
             xSemaphoreGive(xMutexDados);
-        }
-
-        /*
-        ========================================================
-        HOLD
-        ========================================================
-        */
-
-        else
-        {
-            /*
-            Não faz nada.
-            Mantém os últimos dados.
-            */
         }
 
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -635,12 +655,25 @@ void app_main()
     xSemaforoPWM = xSemaphoreCreateBinary();
     xSemaforoBotao = xSemaphoreCreateBinary();
 
+    /*
+    ========================================================
+    PRIORIDADES RTOS
+    ========================================================
+
+    Button        -> 5
+    PWM           -> 4
+    Sensor        -> 3
+    Potenciometro -> 3
+    Console       -> 1
+    ========================================================
+    */
+
     xTaskCreate(
         TaskPWM,
         "TaskPWM",
         2048,
         NULL,
-        3,
+        4,
         NULL
     );
 
@@ -658,7 +691,7 @@ void app_main()
         "TaskSensor",
         2048,
         NULL,
-        2,
+        3,
         NULL
     );
 
@@ -667,7 +700,7 @@ void app_main()
         "TaskPotenciometro",
         2048,
         NULL,
-        2,
+        3,
         NULL
     );
 
@@ -676,7 +709,7 @@ void app_main()
         "TaskButton",
         2048,
         NULL,
-        4,
+        5,
         NULL
     );
 }
